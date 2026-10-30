@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Voice Studio</title>
+<style>
+:root{--bg:#0f1220;--card:#181c2e;--ink:#eef1fb;--mute:#97a0bd;--line:#2b3250;--acc:#5ce1e6;--ok:#6fe3a0;--bad:#ff7b8a}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#1d2250 0,transparent 60%),var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:22px 16px 70px}
+h1{font-size:28px;margin:0 0 4px}h1 span{color:var(--acc)}
+p.sub{color:var(--mute);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
+h2{font-size:14px;margin:0 0 10px;color:var(--acc);text-transform:uppercase;letter-spacing:1.2px}
+label{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+textarea,select,input[type=password]{width:100%;background:#111429;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+textarea{min-height:260px;resize:vertical;line-height:1.55}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.row{grid-template-columns:1fr}}
+button{background:linear-gradient(135deg,var(--acc),#3ab6e6);color:#06202a;border:0;border-radius:11px;padding:12px 18px;font:700 16px inherit;cursor:pointer;width:100%;margin-top:14px}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--mute);width:auto;padding:7px 12px;font-size:13px;font-weight:600;margin-top:12px}
+button:disabled{opacity:.5;cursor:default}
+.hint{font-size:13px;color:var(--mute)}
+code{background:#111429;padding:1px 6px;border-radius:5px;font-size:13px}
+a{color:var(--acc)}
+#log{white-space:pre-wrap;font:13px/1.6 ui-monospace,Menlo,monospace;color:var(--mute)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+audio{width:100%;margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>My Voice <span>Studio</span></h1>
+<p class="sub">Paste a script. Get it read aloud in my own cloned voice.</p>
+
+<div class="card" id="setup" hidden>
+  <h2>One-time setup</h2>
+  <p class="hint">Paste a GitHub token (fine-grained, only for the <code>my-voice-engine</code> repo, with <b>Contents</b> and <b>Actions</b> set to read &amp; write). It stays in this browser only.</p>
+  <input type="password" id="tok" placeholder="github_pat_...">
+  <button id="saveTok">Save token</button>
+</div>
+
+<div id="app" hidden>
+  <div class="card">
+    <h2>1 &middot; Script</h2>
+    <textarea id="script" placeholder="Paste the text you want me to read..."></textarea>
+    <p class="hint" id="count"></p>
+  </div>
+  <div class="card">
+    <h2>2 &middot; Options</h2>
+    <div class="row">
+      <div><label for="speed">Speed</label>
+        <select id="speed"><option value="0.9">Slower</option><option value="1.0" selected>Normal</option><option value="1.1">Faster</option></select></div>
+      <div><label for="lang">Language</label>
+        <select id="lang"><option value="en" selected>English</option><option value="fa">Persian (not tested)</option></select></div>
+    </div>
+    <button id="go">Make my voice</button>
+    <button class="ghost" id="changeTok">Change token</button>
+  </div>
+  <div class="card" id="status" hidden>
+    <h2>Progress</h2>
+    <div id="log"></div>
+    <div id="result"></div>
+  </div>
+</div>
+</main>
+<script>
+const OWNER="sabaghanbarlo-hash",REPO="my-voice-engine",API="https://api.github.com";
+const $=id=>document.getElementById(id);
+const tok=()=>{try{return localStorage.getItem("voice_tok")||""}catch(e){return window._t||""}};
+const setTok=v=>{try{localStorage.setItem("voice_tok",v)}catch(e){window._t=v}};
+function gh(path,opt={}){return fetch(API+path,{...opt,headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+tok(),"X-GitHub-Api-Version":"2022-11-28",...(opt.headers||{})}})}
+function show(){const has=!!tok();$("setup").hidden=has;$("app").hidden=!has}
+$("saveTok").onclick=()=>{const v=$("tok").value.trim();if(v){setTok(v);show()}};
+$("changeTok").onclick=()=>{setTok("");$("tok").value="";show()};
+show();
+const b64=s=>{const b=new TextEncoder().encode(s);let o="";for(let i=0;i<b.length;i+=8192)o+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(o)};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(t,c){const d=document.createElement("div");d.className=c||"";d.textContent=t;$("log").appendChild(d)}
+function count(){const t=$("script").value.trim();const w=t?t.split(/\s+/).length:0;const s=t?(t.match(/[.!?\u061f]+(\s|$)/g)||[1]).length:0;$("count").textContent=w?`${w} words, about ${s} sentences. On the free server expect roughly ${Math.max(1,s*3)}+ minutes.`:""}
+$("script").addEventListener("input",count);count();
+async function putFile(path,content,msg){
+  let sha;const ex=await gh(`/repos/${OWNER}/${REPO}/contents/${path}?ref=main`);if(ex.ok)sha=(await ex.json()).sha;
+  const r=await gh(`/repos/${OWNER}/${REPO}/contents/${path}`,{method:"PUT",body:JSON.stringify({message:msg,content,sha})});
+  if(!r.ok)throw new Error("Could not save "+path+" ("+r.status+"). Check the token.");
+}
+async function runWorkflow(wf,inputs){
+  const t0=Date.now()-5000;
+  const r=await gh(`/repos/${OWNER}/${REPO}/actions/workflows/${wf}/dispatches`,{method:"POST",body:JSON.stringify({ref:"main",inputs})});
+  if(r.status!==204)throw new Error("Could not start it ("+r.status+"). The token needs Actions: read & write.");
+  let run=null;
+  for(let i=0;i<30&&!run;i++){await sleep(4000);
+    const j=await (await gh(`/repos/${OWNER}/${REPO}/actions/workflows/${wf}/runs?event=workflow_dispatch&per_page=5`)).json();
+    run=(j.workflow_runs||[]).find(x=>new Date(x.created_at).getTime()>=t0)||null}
+  if(!run)throw new Error("The run did not appear. Look at the Actions tab of the repo.");
+  let shown="";
+  while(true){
+    const j=await (await gh(`/repos/${OWNER}/${REPO}/actions/runs/${run.id}`)).json();
+    const jobs=await (await gh(`/repos/${OWNER}/${REPO}/actions/runs/${run.id}/jobs`)).json();
+    const cur=((jobs.jobs||[])[0]?.steps||[]).find(s=>s.status==="in_progress");
+    const msg=cur?("Working: "+cur.name):"Waiting for a server...";
+    if(msg!==shown){shown=msg;log(msg)}
+    if(j.status==="completed")return {ok:j.conclusion==="success",conclusion:j.conclusion,url:j.html_url};
+    await sleep(15000)}
+}
+$("go").onclick=async()=>{
+  const text=$("script").value.trim();
+  if(text.length<5){alert("Paste a script first.");return}
+  $("status").hidden=false;$("log").innerHTML="";$("result").innerHTML="";$("go").disabled=true;
+  try{
+    const stamp=new Date().toISOString().slice(5,16).replace(/[-:T]/g,"");
+    const name="voice-"+stamp;
+    log("Saving your script...");
+    await putFile(`scripts/${name}.txt`,b64(text+"\n"),"Add script "+name);
+    log("Starting the voice...");
+    const res=await runWorkflow("speak.yml",{script:`scripts/${name}.txt`,speed:$("speed").value,language:$("lang").value,steps:"16"});
+    if(!res.ok){log("It stopped with: "+res.conclusion,"bad");$("result").innerHTML=`<p><a href="${res.url}" target="_blank">See what went wrong</a></p>`;return}
+    log("Finished.","ok");
+    const f=await gh(`/repos/${OWNER}/${REPO}/contents/results/${name}.mp3?ref=main`,{headers:{Accept:"application/vnd.github.raw"}});
+    if(!f.ok)throw new Error("The audio is not saved yet. Try again in a minute: results/"+name+".mp3");
+    const url=URL.createObjectURL(await f.blob());
+    $("result").innerHTML=`<audio controls src="${url}"></audio><p><a href="${url}" download="${name}.mp3">Download the MP3</a></p>`;
+  }catch(e){log(e.message,"bad")}
+  $("go").disabled=false};
+</script>
+</body>
+</html>

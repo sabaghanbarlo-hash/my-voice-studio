@@ -1,2 +1,4 @@
 # my-voice-studio
-Web page for my cloned-voice reader: paste a script, get audio.
+
+Web page (GitHub Pages, from `docs/`) for reading a script aloud in my cloned voice.
+It drives the GitHub Actions workflow of the private `my-voice-engine` repo, which uses the free Voice Studio tool.
